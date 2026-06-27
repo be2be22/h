@@ -1,0 +1,73 @@
+# =============================================================================
+# docker-compose.yml — Defang.io compatible deployment
+# Single exposed port (80) with HTTP/WebSocket multiplexing via Nginx
+# =============================================================================
+# Defang notes:
+#   - `mode: ingress` tells Defang to expose this port to the public internet
+#     through its HTTPS-terminating load balancer.
+#   - Named volumes persist the 3x-ui SQLite database and Xray logs across
+#     container restarts.
+#   - `platform: linux/amd64` ensures compatibility with Defang's build cluster.
+# =============================================================================
+
+services:
+  xray-panel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: xray-panel
+    restart: unless-stopped
+    platform: linux/amd64
+
+    # ---- Single public port (Defang ingress) ----------------------------
+    ports:
+      - mode: ingress
+        target: 80
+        published: "80"
+        protocol: tcp
+
+    # ---- Environment variables (override via .env or Defang secrets) -----
+    environment:
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - PANEL_PORT=${PANEL_PORT:-2053}
+      - XRAY_VLESS_PORT=${XRAY_VLESS_PORT:-10001}
+      - XRAY_TROJAN_PORT=${XRAY_TROJAN_PORT:-10002}
+      - XRAY_VLESS_PATH=${XRAY_VLESS_PATH:-/vless-ws/}
+      - XRAY_TROJAN_PATH=${XRAY_TROJAN_PATH:-/trojan-ws/}
+      - TZ=${TZ:-Asia/Tehran}
+
+    # ---- Persistent volumes ---------------------------------------------
+    volumes:
+      - xui-data:/etc/x-ui
+      - xray-logs:/var/log/xray
+      - nginx-logs:/var/log/nginx
+
+    # ---- Resource limits (suitable for Defang Playground) ---------------
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+
+    # ---- Health check ---------------------------------------------------
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+
+# =============================================================================
+# Named volumes — persistent across redeploys
+# =============================================================================
+volumes:
+  xui-data:
+    driver: local
+  xray-logs:
+    driver: local
+  nginx-logs:
+    driver: local
